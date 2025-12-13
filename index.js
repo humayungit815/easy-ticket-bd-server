@@ -1,13 +1,15 @@
+require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const app = express();
-require("dotenv").config();
+const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
+
 const port = process.env.PORT || 3000;
 
 // middleware
 app.use(
 	cors({
-		origin: "http://localhost:5173",
+		origin: [`${process.env.CLIENT_DOMAIN}`],
 		credentials: true,
 	})
 );
@@ -33,6 +35,7 @@ async function run() {
 		const db = client.db("easyTicketBD");
 		const ticketsCollection = db.collection("tickets");
 		const usersCollection = db.collection("users");
+		const bookingsCollection = db.collection("bookings");
 
 		app.post("/tickets", async (req, res) => {
 			const ticket = req.body;
@@ -79,6 +82,34 @@ async function run() {
 			res.send({role: result?.role});
 		});
 
+		// payment
+		app.post("/create-checkout-session", async (req, res) => {
+			const paymentInfo = req.body;
+
+			const session = await stripe.checkout.sessions.create({
+				payment_method_types: ["card"],
+				line_items: [
+					{
+						price_data: {
+							currency: "usd",
+							product_data: {
+								name: paymentInfo.ticketTitle,
+								images: [paymentInfo.image],
+							},
+							unit_amount: Math.round(paymentInfo.totalPrice * 100), // cents
+						},
+						quantity: paymentInfo.bookingQty,
+					},
+				],
+				customer_email: paymentInfo.customer.email,
+				mode: "payment",
+				success_url: `${process.env.CLIENT_DOMAIN}/dashboard/payment-success?session_id={CHECKOUT_SESSION_ID}`,
+				cancel_url: `${process.env.CLIENT_DOMAIN}/my-bookings`,
+			});
+
+			res.send({url: session.url});
+		});
+
 		// admin manage tickets
 		app.get("/tickets", async (req, res) => {
 			const result = await ticketsCollection.find().toArray();
@@ -113,6 +144,80 @@ async function run() {
 				.find({verificationStatus: "approved"})
 				.toArray();
 
+			res.send(result);
+		});
+
+		// ticket details
+		app.get("/tickets/:id", async (req, res) => {
+			try {
+				const id = req.params.id;
+				const ticket = await ticketsCollection.findOne({_id: new ObjectId(id)});
+				if (!ticket) {
+					return res.status(404).send({error: "Ticket not found"});
+				}
+				res.send(ticket);
+			} catch (error) {
+				console.error(error);
+				res.status(500).send({error: "Internal Server Error"});
+			}
+		});
+
+		// bookings ticket
+		app.post("/bookings", async (req, res) => {
+			const bookingData = req.body;
+
+			// Set initial booking status
+			bookingData.status = "pending"; // pending | accepted | rejected | paid
+			bookingData.createdAt = new Date();
+
+			try {
+				const result = await bookingsCollection.insertOne(bookingData);
+				res.send(result);
+			} catch (error) {
+				console.error(error);
+				res.status(500).send({message: "Booking failed"});
+			}
+		});
+
+		// my booked ticktes
+		// GET /my-bookings
+		app.get("/bookings", async (req, res) => {
+			const email = req.query.email;
+			try {
+				if (!email) {
+					return res
+						.status(400)
+						.send({error: "Email query parameter is required"});
+				}
+
+				const bookings = await bookingsCollection
+					.find({userEmail: email})
+					.toArray();
+				res.send(bookings);
+			} catch (err) {
+				console.error(err);
+				res.status(500).send({error: "Failed to fetch bookings"});
+			}
+		});
+
+		// booking status update
+		// Accept booking request
+		app.patch("/bookings/accept/:id", async (req, res) => {
+			const id = req.params.id;
+			const result = await bookingsCollection.updateOne(
+				{_id: new ObjectId(id)},
+				{$set: {status: "accepted"}}
+			);
+			res.send(result);
+		});
+
+		// Reject booking request
+		app.patch("/bookings/reject/:id", async (req, res) => {
+			const id = req.params.id;
+			const result = await bookingsCollection.updateOne(
+				{_id: new ObjectId(id)},
+				{$set: {status: "rejected"}}
+			);
 			res.send(result);
 		});
 
