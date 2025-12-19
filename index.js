@@ -15,6 +15,22 @@ app.use(
 );
 app.use(express.json());
 
+// jwt middlewares
+const verifyJWT = async (req, res, next) => {
+	const token = req?.headers?.authorization?.split(" ")[1];
+	console.log(token);
+	if (!token) return res.status(401).send({message: "Unauthorized Access!"});
+	try {
+		const decoded = await admin.auth().verifyIdToken(token);
+		req.tokenEmail = decoded.email;
+		console.log(decoded);
+		next();
+	} catch (err) {
+		console.log(err);
+		return res.status(401).send({message: "Unauthorized Access!", err});
+	}
+};
+
 const {MongoClient, ServerApiVersion, ObjectId} = require("mongodb");
 const uri = `mongodb+srv://${process.env.DB_USERNAME}:${process.env.DB_PASSWORD}@cluster0.ulplndh.mongodb.net/?appName=Cluster0`;
 
@@ -37,6 +53,28 @@ async function run() {
 		const usersCollection = db.collection("users");
 		const bookingsCollection = db.collection("bookings");
 		const transactionsCollection = db.collection("transactions");
+
+		// role middlewares
+		const verifyADMIN = async (req, res, next) => {
+			const email = req.tokenEmail;
+			const user = await usersCollection.findOne({email});
+			if (user?.role !== "admin")
+				return res
+					.status(403)
+					.send({message: "Admin only Actions!", role: user?.role});
+
+			next();
+		};
+
+		// latest added tickets
+		app.get("/recent-added", async (req, res) => {
+			const result = await ticketsCollection
+				.find()
+				.sort({createdAt: -1})
+				.limit(6)
+				.toArray();
+			res.send(result);
+		});
 
 		// Admin: get approved tickets
 		app.get("/admin/approved-tickets", async (req, res) => {
@@ -101,7 +139,7 @@ async function run() {
 		});
 
 		// approve admin
-		app.patch("/approve-admin/:email", async (req, res) => {
+		app.patch("/approve-admin/:email", verifyJWT, async (req, res) => {
 			try {
 				const email = req.params.email;
 
@@ -123,7 +161,7 @@ async function run() {
 		});
 
 		// make vendor
-		app.patch("/approve-vendor/:email", async (req, res) => {
+		app.patch("/approve-vendor/:email", verifyJWT, async (req, res) => {
 			try {
 				const email = req.params.email;
 
@@ -576,6 +614,27 @@ async function run() {
 				{_id: new ObjectId(id)},
 				{$set: {status: "rejected"}}
 			);
+			res.send(result);
+		});
+
+		// update tickets
+		app.put("/tickets/:id", async (req, res) => {
+			const id = req.params.id;
+			const updatedData = req.body;
+
+			const filter = {_id: new ObjectId(id)};
+			const updateTicket = {
+				$set: updatedData,
+			};
+
+			const result = await ticketsCollection.updateOne(filter, updateTicket);
+			res.send(result);
+		});
+
+		// delete tickets
+		app.delete("/vendor/delete-ticket/:id", async (req, res) => {
+			const id = req.params.id;
+			const result = await ticketsCollection.deleteOne({_id: new ObjectId(id)});
 			res.send(result);
 		});
 
