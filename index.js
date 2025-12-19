@@ -45,9 +45,6 @@ const client = new MongoClient(uri, {
 
 async function run() {
 	try {
-		// Connect the client to the server	(optional starting in v4.7)
-		await client.connect();
-
 		const db = client.db("easyTicketBD");
 		const ticketsCollection = db.collection("tickets");
 		const usersCollection = db.collection("users");
@@ -69,7 +66,7 @@ async function run() {
 		// latest added tickets
 		app.get("/recent-added", async (req, res) => {
 			const result = await ticketsCollection
-				.find()
+				.find({verificationStatus: "approved"})
 				.sort({createdAt: -1})
 				.limit(6)
 				.toArray();
@@ -126,6 +123,7 @@ async function run() {
 			const tickets = await ticketsCollection
 				.find({
 					isAdvertised: true,
+					verificationStatus: "approved",
 				})
 				.toArray();
 
@@ -315,7 +313,6 @@ async function run() {
 		});
 
 		// payment
-		// Create Stripe checkout session
 		app.post("/create-checkout-session", async (req, res) => {
 			try {
 				const paymentInfo = req.body;
@@ -346,7 +343,8 @@ async function run() {
 					customer_email: paymentInfo.customer.email,
 					mode: "payment",
 					metadata: {
-						bookingId: paymentInfo.bookingId,
+						bookingId: paymentInfo.bookingId.toString(),
+						ticketQuantity: paymentInfo.bookingQty.toString(),
 					},
 					success_url: `${process.env.CLIENT_DOMAIN}/dashboard/payment-success?session_id={CHECKOUT_SESSION_ID}`,
 					cancel_url: `${process.env.CLIENT_DOMAIN}/my-bookings`,
@@ -368,6 +366,7 @@ async function run() {
 
 				const session = await stripe.checkout.sessions.retrieve(sessionId);
 
+				// Check if transaction was already processed
 				const existingTransaction = await transactionsCollection.findOne({
 					transactionId: session.payment_intent,
 				});
@@ -383,20 +382,12 @@ async function run() {
 				}
 
 				const bookingId = session.metadata?.bookingId;
-				if (!bookingId)
-					return res.status(400).send({error: "Booking ID missing"});
-
 				const booking = await bookingsCollection.findOne({
 					_id: new ObjectId(bookingId),
 				});
 				if (!booking) return res.status(404).send({error: "Booking not found"});
 
-				// Departure check
-				if (new Date(booking.departure) < new Date()) {
-					return res.status(400).send({error: "Departure time passed"});
-				}
-
-				// Update booking status
+				// Update booking status to paid
 				await bookingsCollection.updateOne(
 					{_id: new ObjectId(bookingId)},
 					{
@@ -408,15 +399,19 @@ async function run() {
 						},
 					}
 				);
-				// reduce
-				await ticketsCollection.updateOne(
-					{
-						_id: new ObjectId(session.metadata?.bookingId),
-					},
-					{$inc: {quantity: -1}}
+				const soldQty = parseInt(
+					booking.bookingQty ||
+						booking.ticketQuantity ||
+						session.metadata.ticketQuantity ||
+						1
 				);
 
-				// Save transaction
+				const reduceQuantity = await ticketsCollection.updateOne(
+					{_id: new ObjectId(booking.ticketId)},
+					{$inc: {quantity: -Math.abs(soldQty)}}
+				);
+
+				// Save transaction record
 				await transactionsCollection.insertOne({
 					userEmail: booking.userEmail,
 					vendorEmail: booking.vendorEmail,
@@ -564,7 +559,7 @@ async function run() {
 			}
 		});
 
-		// my booked ticktes
+		// my booked tickets
 		// GET /my-bookings
 		app.get("/bookings", async (req, res) => {
 			const email = req.query.email;
