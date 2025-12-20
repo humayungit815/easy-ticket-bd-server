@@ -134,7 +134,7 @@ async function run() {
 			try {
 				const email = req.params.email;
 
-				// Update user role to 'admin'
+				
 				const result = await usersCollection.updateOne(
 					{email: email},
 					{$set: {role: "admin"}}
