@@ -185,13 +185,13 @@ async function run() {
 					return res.status(400).send({error: "Not a vendor"});
 				}
 
-				// 2️⃣ Mark as fraud
+				
 				await usersCollection.updateOne(
 					{_id: new ObjectId(id)},
 					{$set: {isFraud: true}}
 				);
 
-				// 3️⃣ Hide all vendor tickets
+				
 				await ticketsCollection.updateMany(
 					{vendorEmail: vendor.email},
 					{$set: {isHidden: true}}
