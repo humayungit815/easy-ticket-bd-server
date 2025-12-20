@@ -214,21 +214,21 @@ async function run() {
 		app.get("/tickets", async (req, res) => {
 			try {
 				const {page = 1, limit = 6, from, to, transportType} = req.query;
-				// const {from, to, transportType} = req.query;
+				
 
 				const query = {verificationStatus: "approved"};
 
-				// 🔍 From Location
+				
 				if (from) {
 					query.fromLocation = {$regex: from, $options: "i"};
 				}
 
-				// 🔍 To Location
+				
 				if (to) {
 					query.toLocation = {$regex: to, $options: "i"};
 				}
 
-				// 🎛 Transport Type filter
+			
 				if (transportType && transportType !== "all") {
 					query.transportType = transportType;
 				}
