@@ -1,10 +1,17 @@
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
+const admin = require("firebase-admin");
 const app = express();
 const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
-
 const port = process.env.PORT || 3000;
+const decoded = Buffer.from(process.env.FB_SERVICE_KEY, "base64").toString(
+	"utf-8"
+);
+const serviceAccount = JSON.parse(decoded);
+admin.initializeApp({
+	credential: admin.credential.cert(serviceAccount),
+});
 
 // middleware
 app.use(
@@ -34,7 +41,6 @@ const verifyJWT = async (req, res, next) => {
 const {MongoClient, ServerApiVersion, ObjectId} = require("mongodb");
 const uri = `mongodb+srv://${process.env.DB_USERNAME}:${process.env.DB_PASSWORD}@cluster0.ulplndh.mongodb.net/?appName=Cluster0`;
 
-// Create a MongoClient with a MongoClientOptions object to set the Stable API version
 const client = new MongoClient(uri, {
 	serverApi: {
 		version: ServerApiVersion.v1,
@@ -50,18 +56,6 @@ async function run() {
 		const usersCollection = db.collection("users");
 		const bookingsCollection = db.collection("bookings");
 		const transactionsCollection = db.collection("transactions");
-
-		// role middlewares
-		const verifyADMIN = async (req, res, next) => {
-			const email = req.tokenEmail;
-			const user = await usersCollection.findOne({email});
-			if (user?.role !== "admin")
-				return res
-					.status(403)
-					.send({message: "Admin only Actions!", role: user?.role});
-
-			next();
-		};
 
 		// latest added tickets
 		app.get("/recent-added", async (req, res) => {
@@ -94,7 +88,6 @@ async function run() {
 				});
 				if (!ticket) return res.status(404).send({error: "Ticket not found"});
 
-				// যদি advertise করতে চাই
 				if (!ticket.isAdvertised) {
 					const advertisedCount = await ticketsCollection.countDocuments({
 						isAdvertised: true,
@@ -262,9 +255,9 @@ async function run() {
 		});
 
 		// find vendor added tickets
-		app.get("/vendor/my-tickets/:email", async (req, res) => {
+		app.get("/vendor/my-tickets", verifyJWT, async (req, res) => {
 			try {
-				const vendorEmail = req.params.email;
+				const vendorEmail = req.tokenEmail;
 				if (!vendorEmail)
 					return res.status(400).send({error: "Vendor email required"});
 
@@ -306,9 +299,8 @@ async function run() {
 		});
 
 		// get user's role
-		app.get("/users/role/:email", async (req, res) => {
-			const email = req.params.email;
-			const result = await usersCollection.findOne({email});
+		app.get("/users/role", verifyJWT, async (req, res) => {
+			const result = await usersCollection.findOne({email: req.tokenEmail});
 			res.send({role: result?.role});
 		});
 
@@ -428,14 +420,13 @@ async function run() {
 			}
 		});
 
-		// GET /vendor/revenue?email=vendor@gmail.com
-		app.get("/vendor/revenue", async (req, res) => {
+		// GET /vendor/revenue
+		app.get("/vendor/revenue", verifyJWT, async (req, res) => {
 			try {
-				const {email} = req.query;
+				const email = req.tokenEmail;
 				if (!email)
 					return res.status(400).send({error: "Vendor email required"});
 
-				// 1️⃣ Total Revenue & Tickets Sold from transactions
 				const transactions = await transactionsCollection
 					.find({vendorEmail: email})
 					.toArray();
@@ -451,7 +442,6 @@ async function run() {
 					totalTicketsSold += tx.quantity || 1;
 				});
 
-				// 2️⃣ Total Tickets Added (from tickets collection)
 				const totalTicketsAdded = await ticketsCollection.countDocuments({
 					vendorEmail: email,
 				});
@@ -469,9 +459,9 @@ async function run() {
 		});
 
 		// GET transactions
-		app.get("/transactions", async (req, res) => {
+		app.get("/transactions", verifyJWT, async (req, res) => {
 			try {
-				const email = req.query.email;
+				const email = req.tokenEmail;
 				if (!email) return res.status(400).send({error: "Email is required"});
 
 				const transactions = await transactionsCollection
@@ -560,9 +550,8 @@ async function run() {
 		});
 
 		// my booked tickets
-		// GET /my-bookings
-		app.get("/bookings", async (req, res) => {
-			const email = req.query.email;
+		app.get("/bookings", verifyJWT, async (req, res) => {
+			const email = req.tokenEmail;
 			try {
 				if (!email) {
 					return res
@@ -581,8 +570,8 @@ async function run() {
 		});
 
 		// get requested bookings
-		app.get("/vendor/bookings", async (req, res) => {
-			const email = req.query.email;
+		app.get("/vendor/bookings", verifyJWT, async (req, res) => {
+			const email = req.tokenEmail;
 
 			const bookings = await bookingsCollection
 				.find({vendorEmail: email})
@@ -592,7 +581,6 @@ async function run() {
 		});
 
 		// booking status update
-		// Accept booking request
 		app.patch("/bookings/accept/:id", async (req, res) => {
 			const id = req.params.id;
 			const result = await bookingsCollection.updateOne(
@@ -639,8 +627,6 @@ async function run() {
 			"Pinged your deployment. You successfully connected to MongoDB!"
 		);
 	} finally {
-		// Ensures that the client will close when you finish/error
-		// await client.close();
 	}
 }
 run().catch(console.dir);
