@@ -134,7 +134,6 @@ async function run() {
 			try {
 				const email = req.params.email;
 
-				
 				const result = await usersCollection.updateOne(
 					{email: email},
 					{$set: {role: "admin"}}
@@ -156,7 +155,6 @@ async function run() {
 			try {
 				const email = req.params.email;
 
-				
 				const result = await usersCollection.updateOne(
 					{email: email},
 					{$set: {role: "vendor"}}
@@ -178,20 +176,17 @@ async function run() {
 			try {
 				const id = req.params.id;
 
-				
 				const vendor = await usersCollection.findOne({_id: new ObjectId(id)});
 
 				if (!vendor || vendor.role !== "vendor") {
 					return res.status(400).send({error: "Not a vendor"});
 				}
 
-				
 				await usersCollection.updateOne(
 					{_id: new ObjectId(id)},
 					{$set: {isFraud: true}}
 				);
 
-				
 				await ticketsCollection.updateMany(
 					{vendorEmail: vendor.email},
 					{$set: {isHidden: true}}
@@ -214,21 +209,17 @@ async function run() {
 		app.get("/tickets", async (req, res) => {
 			try {
 				const {page = 1, limit = 6, from, to, transportType} = req.query;
-				
 
 				const query = {verificationStatus: "approved"};
 
-				
 				if (from) {
 					query.fromLocation = {$regex: from, $options: "i"};
 				}
 
-				
 				if (to) {
 					query.toLocation = {$regex: to, $options: "i"};
 				}
 
-			
 				if (transportType && transportType !== "all") {
 					query.transportType = transportType;
 				}
@@ -450,7 +441,7 @@ async function run() {
 					totalRevenue,
 					totalTicketsSold,
 					totalTicketsAdded,
-					transactions, // optional, chart-wise data
+					transactions,
 				});
 			} catch (err) {
 				console.error(err);
@@ -466,7 +457,7 @@ async function run() {
 
 				const transactions = await transactionsCollection
 					.find({userEmail: email})
-					.sort({paidAt: -1}) // newest first
+					.sort({paidAt: -1})
 					.toArray();
 
 				res.send(transactions);
@@ -536,7 +527,6 @@ async function run() {
 				return res.status(400).send({error: "ticketId is required"});
 			}
 
-			// Set initial booking status
 			bookingData.status = "pending";
 			bookingData.createdAt = new Date();
 
@@ -621,7 +611,6 @@ async function run() {
 			res.send(result);
 		});
 
-		// Send a ping to confirm a successful connection
 		await client.db("admin").command({ping: 1});
 		console.log(
 			"Pinged your deployment. You successfully connected to MongoDB!"
