@@ -178,7 +178,7 @@ async function run() {
 			try {
 				const id = req.params.id;
 
-				// 1️⃣ Find the user
+				
 				const vendor = await usersCollection.findOne({_id: new ObjectId(id)});
 
 				if (!vendor || vendor.role !== "vendor") {
